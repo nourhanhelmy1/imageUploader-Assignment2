@@ -1,148 +1,217 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Text.Json;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+
+var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+
+app.MapGet("/", async (HttpContext context) =>
+{
+    await context.Response.WriteAsync(@"
+        <!DOCTYPE html>
+        <html lang=""en"">
+        <head>
+            <meta charset=""utf-8"" />
+            <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+            <title>My Image Uploader</title>
+            <style>
+                body {
+                    background-color: #FCE4EC;
+                    color: #333333;
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                }
+        
+                h1 {
+                    color: #FF4081;
+                    text-align: center;
+                }
+        
+                form {
+                    background-color: #FFFFFF;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    padding: 20px;
+                    max-width: 400px;
+                    margin: 0 auto;
+                }
+        
+                label {
+                    display: block;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                }
+        
+                input[type=""text""],
+                input[type=""file""] {
+                    width: 100%;
+                    padding: 8px;
+                    margin-bottom: 15px;
+                    border: 1px solid #CCCCCC;
+                    border-radius: 4px;
+                }
+        
+                input[type=""submit""] {
+                    background-color: #FF4081;
+                    border: none;
+                    color: #FFFFFF;
+                    cursor: pointer;
+                    padding: 10px 20px;
+                    font-size: 16px;
+                    border-radius: 4px;
+                }
+        
+                input[type=""submit""]:hover {
+                    background-color: #E91E63;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>Image Uploader</h1>
+            <form action=""/"" method=""POST"" enctype=""multipart/form-data"">
+                <label for=""name"">Name:</label>
+                <input type=""text"" id=""name"" name=""name"" required><br><br>
+                <label for=""image"">Attach Image:  (JPEG, PNG, GIF)</label>
+                <input type=""file"" id=""image"" name=""image"" accept=""image/jpeg, image/png, image/gif"" required><br><br>
+                <input type=""submit"" value=""Upload"">
+            </form>
+        </body>
+        </html>");
+});
+
+app.MapPost("/", async (HttpContext context) =>
+{
+    IFormCollection imageForm = await context.Request.ReadFormAsync();
+    var imageFile = imageForm.Files[0];
+    string imageId = Guid.NewGuid().ToString();
+    string imageName = imageForm["name"];
+    string fileExtension = Path.GetExtension(imageFile.FileName).ToLower();
+
+    if (imageForm.Files.Count == 0)
+    {
+        context.Response.StatusCode = 400; //Bad Request
+        await context.Response.WriteAsync("No image uploaded!");
+        return;
+    }
+
+    if (fileExtension != ".png" && fileExtension != ".gif" && fileExtension != ".jpeg")
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("File extension is not allowed. Accepts only JPEG, PNG and GIF!");
+        return;
+    }
+
+    if (string.IsNullOrEmpty(imageName))
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("Please enter the image title!");
+        return;
+    }
+
+    var imagePath = Path.Combine("images", $"{imageId}{fileExtension}");
+    using (var stream = new FileStream(imagePath, FileMode.Create))
+    {
+        await imageFile.CopyToAsync(stream);
+    }
+
+    var base64Image = Convert.ToBase64String(await File.ReadAllBytesAsync(imagePath));
+    var Image = new Image
+    {
+        Id = imageId,
+        Name = imageName,
+        Path = base64Image
+    };
+
+    var jsonOptions = new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        IncludeFields = true,
+    };
+
+    File.WriteAllText("imageInfo.json", JsonSerializer.Serialize(Image, jsonOptions));
+
+    context.Response.Redirect($"/pictures/{imageId}");
+});
+
+app.MapGet("/pictures/{id}", async (HttpContext context) =>
+{
+    Image? newImage = JsonSerializer.Deserialize<Image>(await File.ReadAllTextAsync("imageInfo.json"));
+
+    await context.Response.WriteAsync($@"
+        <!DOCTYPE html>
+        <html lang=""en"">
+        <head>
+            <meta charset=""utf-8"" />
+            <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+            <title>Uploaded Image</title>
+            <style>
+                body {{
+                    background-color: #FCE4EC;
+                    color: #333333;
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                }}
+        
+                .container {{
+                    background-color: #FFFFFF;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    padding: 20px;
+                    max-width: 400px;
+                    margin: 0 auto;
+                }}
+        
+                .card-img-top {{
+                    width: 100%;
+                }}
+        
+                .card-title1 {{
+                    color: #FF4081;
+                    margin-bottom: 10px;
+                }}
+
+                .card-title2 {{
+                    color: #000000;
+                    margin-bottom: 10px;
+                }}
+        
+                .btn-primary {{
+                    background-color: #FF4081;
+                    border: none;
+                    color: #FFFFFF;
+                    cursor: pointer;
+                    padding: 10px 20px;
+                    font-size: 16px;
+                    border-radius: 4px;
+                    text-decoration: none;
+                    display: inline-block;
+                }}
+        
+                .btn-primary:hover {{
+                    background-color: #E91E63;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class=""container"">
+                <img src=""data:image/png;base64,{newImage.Path}"" alt=""{newImage.Name}"" class=""card-img-top"">
+                <div class=""card-body"">
+                    <h4 class=""card-title1"">Name:</h4>
+                    <h5 class=""card-title2"" style=""margin-top: -10px;"">{newImage.Name}</h5>
+                </div>
+                <div class=""card-body"">
+                    <a href=""/"" class=""btn btn-primary"">Back to form</a>
+                </div>
+            </div>
+        </body>
+        </html>");
+});
+
+app.Run();
 
 public class Image
 {
-    public string Id { get; set; }
-    public string? Title { get; set; }
-    public string? ImagePath { get; set; }
-
-    public Image()
-    {
-        Id = Guid.NewGuid().ToString();
-    }
-}
-
-public class Program
-{
-    public static void Main(string[] args)
-    {
-        var builder = WebApplication.CreateBuilder(args);
-        var app = builder.Build();
-
-        app.MapGet("/", async (context) =>
-        {
-            var html = @"
-                <!DOCTYPE html>
-                <html lang=""en"">
-                <head>
-                    <meta charset=""utf-8"" />
-                    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-                    <title>Image Uploader</title>
-                </head>
-                <body>
-                    <h1>Image Uploader</h1>
-                    <form action=""/"" method=""POST"" enctype=""multipart/form-data"">
-                        <label for=""title"">Title:</label>
-                        <input type=""text"" id=""title"" name=""title"" required><br><br>
-                        <label for=""image"">Attach Image:</label>
-                        <input type=""file"" id=""image"" name=""image"" accept=""image/jpeg, image/png, image/gif"" required><br><br>
-                        <input type=""submit"" value=""Upload"">
-                    </form>
-                </body>
-                </html>";
-
-            await context.Response.WriteAsync(html);
-        });
-
-        app.MapPost("/", async (HttpContext context) =>
-        {
-            IFormCollection form = await context.Request.ReadFormAsync();
-            string? imageTitle = form["title"];
-            if (string.IsNullOrEmpty(imageTitle))
-            {
-                return Results.BadRequest("Empty title string");
-            }
-            if (form.Files.Count == 0)
-            {
-                return Results.BadRequest("No file uploaded");
-            }
-            IFormFile imageFormFile = form.Files[0];
-            string fileName = imageFormFile.FileName;
-            string fileExtension = fileName.Split('.')[1];
-            if (fileExtension.ToLower() != "png" && fileExtension.ToLower() != "jpg" && fileExtension.ToLower() != "gif" && fileExtension.ToLower() != "jpeg")
-            {
-                return Results.BadRequest("Invalid file extension");
-            }
-            string filePath = Path.Combine(Directory.GetCurrentDirectory(), "Images", fileName);
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await imageFormFile.CopyToAsync(stream);
-            }
-            Image newImage = new()
-            {
-                Title = imageTitle,
-                ImagePath = filePath
-            };
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                IncludeFields = true,
-            };
-            string jsonPath = Path.Combine(Directory.GetCurrentDirectory(), "imageInfo.json");
-            string allJson = await File.ReadAllTextAsync(jsonPath);
-            List<Image> allImages = new();
-            if (!string.IsNullOrEmpty(allJson))
-            {
-                allImages = JsonSerializer.Deserialize<List<Image>>(allJson);
-            }
-            allImages.Add(newImage);
-            string allImagesJson = JsonSerializer.Serialize(allImages, options);
-            await File.WriteAllTextAsync(jsonPath, allImagesJson);
-            return Results.RedirectToRoute("picture", new { id = newImage.Id });
-        });
-
-        app.MapGet("/pictures/{id}", async (string id, HttpContext context) =>
-        {
-            // Retrieve the image information based on the provided ID
-            string jsonPath = Path.Combine(Directory.GetCurrentDirectory(), "imageInfo.json");
-            string allJson = await File.ReadAllTextAsync(jsonPath);
-            List<Image> allImages = JsonSerializer.Deserialize<List<Image>>(allJson) ?? new List<Image>();
-            Image? image = allImages.Find(i => i.Id == id);
-
-            if (image is null)
-            {
-                // Image not found, return a NotFound result
-                return Results.NotFound("Image not Found");
-            }
-            else
-            {
-                // Image found, display the image and its details
-                byte[] imageBytes = await File.ReadAllBytesAsync(image.ImagePath);
-                string imageBase64Data = Convert.ToBase64String(imageBytes);
-
-                var html = $@"<!DOCTYPE html>
-                <html>
-                    <head>
-                        <meta charset=""utf-8"" />
-                        <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-                        <title>Uploaded Image</title>
-                        <link href=""https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"" rel=""stylesheet"" integrity=""sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"" crossorigin=""anonymous"">
-                    </head>
-                    <body>
-                        <div class=""container card shadow p-0 d-flex justify-content-center mt-5"" style=""width: 25rem;"">
-                            <img src=""data:image/png;base64,{imageBase64Data}"" alt=""{image.Title}"" class=""card-img-top"" style=""width: 100%;"" >
-                            <div class=""card-body"">
-                                <h4 class=""card-title"">Title:</h4>
-                                <h5 class=""card-title"">{image.Title}</h5>
-                            </div>
-                            <div class=""card-body"">
-                                <a href=""/"" class=""btn btn-primary"">Back to form</a>
-                            </div>
-                        </div>
-                    </body>
-                </html>";
-
-                return Results.Content(html, "text/html", System.Text.Encoding.UTF8);
-            }
-        }).WithName("picture");
-
-        app.Run();
-    }
+    public string? Id { get; set; }
+    public string? Name { get; set; }
+    public string? Path { get; set; }
 }
