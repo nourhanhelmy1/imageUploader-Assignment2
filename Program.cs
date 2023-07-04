@@ -1,4 +1,8 @@
+using System;
+using System.IO;
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -88,7 +92,7 @@ app.MapPost("/", async (HttpContext context) =>
 
     if (imageForm.Files.Count == 0)
     {
-        context.Response.StatusCode = 400; //Bad Request
+        context.Response.StatusCode = 400; // Bad Request
         await context.Response.WriteAsync("No image uploaded!");
         return;
     }
@@ -96,7 +100,7 @@ app.MapPost("/", async (HttpContext context) =>
     if (fileExtension != ".png" && fileExtension != ".gif" && fileExtension != ".jpeg")
     {
         context.Response.StatusCode = 400;
-        await context.Response.WriteAsync("File extension is not allowed. Accepts only JPEG, PNG and GIF!");
+        await context.Response.WriteAsync("File extension is not allowed. Accepts only JPEG, PNG, and GIF!");
         return;
     }
 
@@ -113,12 +117,11 @@ app.MapPost("/", async (HttpContext context) =>
         await imageFile.CopyToAsync(stream);
     }
 
-    var base64Image = Convert.ToBase64String(await File.ReadAllBytesAsync(imagePath));
-    var Image = new Image
+    var image = new Image
     {
         Id = imageId,
         Name = imageName,
-        Path = base64Image
+        Path = imagePath
     };
 
     var jsonOptions = new JsonSerializerOptions
@@ -127,14 +130,19 @@ app.MapPost("/", async (HttpContext context) =>
         IncludeFields = true,
     };
 
-    File.WriteAllText("imageInfo.json", JsonSerializer.Serialize(Image, jsonOptions));
+    File.WriteAllText("imageInfo.json", JsonSerializer.Serialize(image, jsonOptions));
 
     context.Response.Redirect($"/pictures/{imageId}");
 });
 
+
 app.MapGet("/pictures/{id}", async (HttpContext context) =>
 {
     Image? newImage = JsonSerializer.Deserialize<Image>(await File.ReadAllTextAsync("imageInfo.json"));
+
+    var imageBytes = await File.ReadAllBytesAsync(newImage.Path);
+    var base64Image = Convert.ToBase64String(imageBytes);
+    var imageSource = $"data:image/png;base64,{base64Image}";
 
     await context.Response.WriteAsync($@"
         <!DOCTYPE html>
@@ -194,7 +202,7 @@ app.MapGet("/pictures/{id}", async (HttpContext context) =>
         </head>
         <body>
             <div class=""container"">
-                <img src=""data:image/png;base64,{newImage.Path}"" alt=""{newImage.Name}"" class=""card-img-top"">
+                <img src=""{imageSource}"" alt=""{newImage.Name}"" class=""card-img-top"">
                 <div class=""card-body"">
                     <h4 class=""card-title1"">Name:</h4>
                     <h5 class=""card-title2"" style=""margin-top: -10px;"">{newImage.Name}</h5>
